@@ -4,9 +4,11 @@ import logging
 import time
 import json
 import enum
+import datetime
 
 class DeviceId(enum.IntEnum):
-    SmartMeter = 0
+    SmartMeter_Instant = 0,
+    SmartMeter_Integrate = 1
 
 class PublishAWSIoTMessage:
 
@@ -34,15 +36,28 @@ class PublishAWSIoTMessage:
     
     def queueInstantPowerMessage(self, power, time):
         message = {}
-        message['device_id'] = DeviceId.SmartMeter
+        message['device_id'] = DeviceId.SmartMeter_Instant
         message['datetime'] = time.strftime('%Y/%m/%d %H:%M:%S')
         message['power'] = power
 
         record = {}
         record['topic'] = "energy_log/notify"
         record['message'] = message
-
         self.__messageQueue.append(record)
+    
+    def queueIntegratePowerMessage(self, powers, date):
+        message = {}
+        for power in powers:
+            message['device_id'] = DeviceId.SmartMeter_Integrate
+            message['datetime'] = date.strftime('%Y/%m/%d %H:%M:%S')
+            message['power'] = power
+
+            record = {}
+            record['topic'] = "energy_log/notify"
+            record['message'] = message
+            self.__messageQueue.append(record)
+
+            date += datetime.timedelta(minutes=30)
 
     def uploadQueueMessages(self):
 

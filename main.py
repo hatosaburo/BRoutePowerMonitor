@@ -15,6 +15,9 @@ CONFIG_FILE = 'config.yaml'
 def getPowerMeasurementScheduleJob(smartMeter, awsIot):
     smartMeter.getPowerMeasurement(awsIot.queueInstantPowerMessage)
 
+def getIntegratePowerScheduleJob(smartMeter, awsIot):
+    smartMeter.getIntegratePower(awsIot.queueIntegratePowerMessage)
+
 def publishAwsIotScheduleJob(awsIot):
     awsIot.uploadQueueMessages()
 
@@ -37,8 +40,14 @@ def main():
     # 毎分00秒の電力を取得する
     schedule.every(1).minutes.at(":00").do(getPowerMeasurementScheduleJob, smartMeter, awsIot)
 
-    # 取得した電力値を15分ごとにAWS(DynamoDB)にアップする
-    schedule.every(15).minutes.at(":30").do(publishAwsIotScheduleJob, awsIot)
+    # 取得したデータを15分ごとにAWS(DynamoDB)にアップする
+    schedule.every().hour.at("00:30").do(publishAwsIotScheduleJob, awsIot)
+    schedule.every().hour.at("15:30").do(publishAwsIotScheduleJob, awsIot)
+    schedule.every().hour.at("30:30").do(publishAwsIotScheduleJob, awsIot)
+    schedule.every().hour.at("45:30").do(publishAwsIotScheduleJob, awsIot)
+
+    # 昨日一日分の30毎の積算電力を取得する
+    schedule.every().day.at("00:00").do(getIntegratePowerScheduleJob, smartMeter, awsIot)
 
     while True:
         schedule.run_pending()

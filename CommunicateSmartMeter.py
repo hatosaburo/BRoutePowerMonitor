@@ -102,6 +102,8 @@ class CommunicateSmartMeter():
                     
                 elif recvMessage.startswith(b"EVENT 25") :
                     self.__status = connectStatus.CONNECTED
+                    # 積算電力量の単位を取得する
+                    self.__requestPropertyRW(b"\xE1")
 
             elif self.__status == connectStatus.CONNECTED:
                 if recvMessage.startswith(b"ERXUDP") :
@@ -121,11 +123,30 @@ class CommunicateSmartMeter():
                 print(u"不完全データは破棄:{0}".format(data))
                 break
             
-            if EPC == b"\xE7":
+            if EPC == b"\xE1":
+                self.__unit = int.from_bytes(data[2:2+1], 'big')
+                # 積算電力収集日を設定する
+                self.__requestPropertyRW(b"\xE5", read=False, data=data.to_bytes(1, 'big'))
+            elif EPC == b"\xE2":
+                # 前日を日付を設定
+                date = datetime.datetime.now() - datetime.timedelta(days=int.from_bytes(data[2:2+2], 'big'))
+                date = datetime.date(date.year, date.month, date.day)
+
+                # 30分値電力を取得
+                data_powers = data[4:]
+                powers = []
+                while len(data_powers) > 0:
+                    powers.append(int.from_bytes(data_powers[0:0+4], 'big'))
+                    data_powers = data_powers[4:]
+                print(u"積算電力履歴(IN):{0} [{1}]", date, powers)
+                self.__callbackE2(powers, date)
+            elif EPC == b"\xE5":
+                pass
+            elif EPC == b"\xE7":
                 # 瞬時電力計測値
                 power = int.from_bytes(data[2:2+4], 'big')
                 print(u"{0}:瞬時電力計測値:{1}[W] ".format(self.__requestTime, power))
-                self.__callback(power, self.__requestTime)
+                self.__callbackE7(power, self.__requestTime)
             elif EPC == b"\xEA":
                 # 30分電力積算量(IN)
                 year, month, day, hour, minute, second, power = int.from_bytes(data[2:2+2], 'big'), data[4], data[5], data[6], data[7], data[8], int.from_bytes(data[9:9+4], 'big')
@@ -152,32 +173,38 @@ class CommunicateSmartMeter():
         self.__sendCommand(b"SKSETPWD C " + self.__rbpwd.encode('utf-8') + b"\r\n")
         self.__status = connectStatus.SETPASSWORD
 
+    def getIntegratePower(self, callback):
+        """積算消費電力量を取得します"""
+        self.__callbackE2 = callback
+        return self.__requestPropertyRW(b"\xE2")
+
     def getInstantPower(self, callback):
+        """瞬時電力消費量を取得します"""
+        self.__requestTime = datetime.datetime.now()
+        self.__callbackE7 = callback
+        return self.__requestPropertyRW(b"\xE7")
+
+    def __requestPropertyRW(self, epc, read=True, data=b""):
         if self.__status != connectStatus.CONNECTED:
             return -1
 
-        self.__requestTime = datetime.datetime.now()
-        self.__callback = callback
-
-        """スマートメーターから瞬時電力消費量を取得します"""
-    # ECHONET Lite フレーム作成
-        # 　参考資料
-        # 　・ECHONET-Lite_Ver.1.12_02.pdf (以下 EL)
-        # 　・Appendix_H.pdf (以下 AppH)
         echonetLiteFrame = b""
         echonetLiteFrame += b"\x10\x81"      # EHD (参考:EL p.3-2)
         echonetLiteFrame += b"\x00\x01"      # TID (参考:EL p.3-3)
         # ここから EDATA
         echonetLiteFrame += b"\x05\xFF\x01"  # SEOJ (参考:EL p.3-3 AppH p.3-408～)
-        echonetLiteFrame += b"\x02\x88\x01"  # DEOJ (参考:EL p.3-3 AppH p.3-274～)
-        echonetLiteFrame += b"\x62"          # ESV(62:プロパティ値読み出し要求) (参考:EL p.3-5)
+        echonetLiteFrame += b"\x02\x88\x01"  # DEOJ (参考:EL p.3-3 AppH p.3-274～)       
+        echonetLiteFrame += b"\x62" if read == True else b"\x60"   # ESV(62:プロパティ値読み出し要求) (参考:EL p.3-5)
         echonetLiteFrame += b"\x01"          # OPC(1個)(参考:EL p.3-7)
-        echonetLiteFrame += b"\xE7"          # EPC(参考:EL p.3-7 AppH p.3-275)
-        echonetLiteFrame += b"\x00"          # PDC(参考:EL p.3-9)
+        echonetLiteFrame += epc              # EPC(参考:EL p.3-7 AppH p.3-275)
+        echonetLiteFrame += "{0:01X}".format(len(data)).encode(encoding='utf-8')          # PDC(参考:EL p.3-9)
+        echonetLiteFrame += data
 
         # コマンド送信
         command = b"SKSENDTO 1 " + self.__ipv6Addr + b" 0E1A 1 " + "{0:04X}".format(len(echonetLiteFrame)).encode(encoding='utf-8') + b" " + echonetLiteFrame + b"\r\n"
-        self.__ser.write(command)
+        self.__sendCommand(command)
+
+        return 0
 
     def close(self,) :
         self.__ser.close()
