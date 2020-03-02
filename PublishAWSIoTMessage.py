@@ -46,8 +46,8 @@ class PublishAWSIoTMessage:
         self.__messageQueue.append(record)
     
     def queueIntegratePowerMessage(self, powers, date):
-        message = {}
         for power in powers:
+            message = {}
             message['device_id'] = DeviceId.SmartMeter_Integrate
             message['datetime'] = date.strftime('%Y/%m/%d %H:%M:%S')
             message['power'] = power

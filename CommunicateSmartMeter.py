@@ -38,11 +38,12 @@ class CommunicateSmartMeter():
 
         while True:
             recvMessage = self.__ser.readline()
-            # print(recvMessage, end="\r\n")
+            print(recvMessage, end="\r\n")
 
             # \r\nで終わるまで継続して受信データを待つ
+            # readline()が\nで一行として区切るため、バイナリデータ部に\nのデータが含まれると分割されてしまう
             if not recvMessage.endswith(b"\r\n"):
-                recvBuffer += recvMessage.rstrip(b"\n")
+                recvBuffer += recvMessage
                 continue
             else:
                 recvBuffer += recvMessage
@@ -107,13 +108,13 @@ class CommunicateSmartMeter():
 
             elif self.__status == connectStatus.CONNECTED:
                 if recvMessage.startswith(b"ERXUDP") :
-                    cols = recvMessage.replace(b"\r\n", b"").split(b' ')
+                    cols = recvMessage.split(b' ', 8)
                     res = cols[8]   # UDP受信データ部分
                     seoj = res[4:4+3] # 送信者
                     ESV = res[10:10+1]
-                    if seoj == b"\x02\x88\x01":
-                        # スマートメーター(028801)から来たなら
-                        self.__handleSmartMeterMessage(ESV, res[12:])
+                    if seoj == b"\x02\x88\x01": # スマートメーター(028801)から来たなら
+                        # 末尾の\r\nをのぞくデータ部を処理してもらう
+                        self.__handleSmartMeterMessage(ESV, res[12:-2])
     
     def __handleSmartMeterMessage(self, ESV, data):
         while not data == b'':
@@ -126,11 +127,10 @@ class CommunicateSmartMeter():
             if EPC == b"\xE1":
                 self.__unit = int.from_bytes(data[2:2+1], 'big')
                 # 積算電力収集日を設定する
-                self.__requestPropertyRW(b"\xE5", read=False, data=data.to_bytes(1, 'big'))
+                self.__requestPropertyRW(b"\xE5", read=False, data=(1).to_bytes(1, 'big'))
             elif EPC == b"\xE2":
                 # 前日を日付を設定
-                date = datetime.datetime.now() - datetime.timedelta(days=int.from_bytes(data[2:2+2], 'big'))
-                date = datetime.date(date.year, date.month, date.day)
+                date = datetime.datetime.now().replace(hour=0,minute=0,second=0,microsecond=0) - datetime.timedelta(days=int.from_bytes(data[2:2+2], 'big'))
 
                 # 30分値電力を取得
                 data_powers = data[4:]
@@ -138,7 +138,7 @@ class CommunicateSmartMeter():
                 while len(data_powers) > 0:
                     powers.append(int.from_bytes(data_powers[0:0+4], 'big'))
                     data_powers = data_powers[4:]
-                print(u"積算電力履歴(IN):{0} [{1}]", date, powers)
+                print(u"積算電力履歴(IN):{0} {1}".format(date, powers))
                 self.__callbackE2(powers, date)
             elif EPC == b"\xE5":
                 pass
@@ -197,7 +197,7 @@ class CommunicateSmartMeter():
         echonetLiteFrame += b"\x62" if read == True else b"\x60"   # ESV(62:プロパティ値読み出し要求) (参考:EL p.3-5)
         echonetLiteFrame += b"\x01"          # OPC(1個)(参考:EL p.3-7)
         echonetLiteFrame += epc              # EPC(参考:EL p.3-7 AppH p.3-275)
-        echonetLiteFrame += "{0:01X}".format(len(data)).encode(encoding='utf-8')          # PDC(参考:EL p.3-9)
+        echonetLiteFrame += len(data).to_bytes(1, 'big')          # PDC(参考:EL p.3-9)
         echonetLiteFrame += data
 
         # コマンド送信
