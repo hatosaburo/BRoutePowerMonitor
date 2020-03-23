@@ -1,13 +1,7 @@
 general:
   serial: '/dev/ttyUSB0'
+  data_dir: '/opt/hems/data'
 
 broute:
   account: '01234567890123456789012345678901' 
   password: 'XXXXXXXXXXXX'
-
-awsiot:
-  host: 'samplehost.iot.ap-northeast-1.amazonaws.com'
-  cert_pem: 'raspberry_pi.cert.pem'
-  private_key: 'raspberry_pi.private.key'
-  public_key: 'rapberry_pi.public.key'
-  root_ca: 'root-CA.crt'
