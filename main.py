@@ -48,6 +48,9 @@ def calcWattMinuteScheduleJob():
     wattPool = []
     lock.release()
 
+    if wattMinute == 0:
+        return
+
     logger.info('電力:{0}[W]'.format(wattMinute))
     dumpEnergyLog(0, now, wattMinute, config['general']['data_dir'])
 

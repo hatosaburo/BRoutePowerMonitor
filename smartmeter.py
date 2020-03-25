@@ -42,88 +42,91 @@ class smartmeter():
         recvBuffer = b""
 
         while True:
-            recvMessage = self.__ser.readline()
-            logger.debug(recvMessage)
+            try:
+                recvMessage = self.__ser.readline()
+                logger.debug(recvMessage)
 
-            # \r\nで終わるまで継続して受信データを待つ
-            # readline()が\nで一行として区切るため、バイナリデータ部に\nのデータが含まれると分割されてしまう
-            if not recvMessage.endswith(b"\r\n"):
-                recvBuffer += recvMessage
-                continue
-            else:
-                recvBuffer += recvMessage
-                recvMessage = recvBuffer
-                recvBuffer = b""
+                # \r\nで終わるまで継続して受信データを待つ
+                # readline()が\nで一行として区切るため、バイナリデータ部に\nのデータが含まれると分割されてしまう
+                if not recvMessage.endswith(b"\r\n"):
+                    recvBuffer += recvMessage
+                    continue
+                else:
+                    recvBuffer += recvMessage
+                    recvMessage = recvBuffer
+                    recvBuffer = b""
 
-            if recvMessage == self.__sendingCommand:
-                # エコーバック受信
-                pass
+                if recvMessage == self.__sendingCommand:
+                    # エコーバック受信
+                    pass
 
-            elif recvMessage == b'OK\r\n':
-                if self.__status == connectStatus.SETPASSWORD:
-                    # Bルート認証ID設定
-                    self.__sendCommand(b"SKSETRBID " + self.__rbid.encode('utf-8') + b"\r\n")
-                    self.__status = connectStatus.SETACCOUNT
+                elif recvMessage == b'OK\r\n':
+                    if self.__status == connectStatus.SETPASSWORD:
+                        # Bルート認証ID設定
+                        self.__sendCommand(b"SKSETRBID " + self.__rbid.encode('utf-8') + b"\r\n")
+                        self.__status = connectStatus.SETACCOUNT
 
-                elif self.__status == connectStatus.SETACCOUNT:
-                    logger.info(u"スキャン実行中...")
-                    scanDuration = 4   # スキャン時間。サンプルでは6なんだけど、4でも行けるので。（ダメなら増やして再試行）
-                    strCommand = "SKSCAN 2 FFFFFFFF " + str(scanDuration) + "\r\n"
-                    self.__sendCommand(strCommand.encode(encoding='utf-8'))
-                    self.__status = connectStatus.SCANNETWORK
-
-                elif self.__status == connectStatus.SETCHANNEL:
-                    self.__sendCommand(b"SKSREG S3 " + scanRes[b"Pan ID"] + b"\r\n")
-                    self.__status = connectStatus.SETPANID
-                    
-                elif self.__status == connectStatus.SETPANID:
-                    self.__sendCommand(b"SKLL64 " + scanRes[b"Addr"] + b"\r\n")
-                    self.__status = connectStatus.GETIPADDR6
-
-            elif self.__status == connectStatus.SCANNETWORK:
-                if recvMessage.startswith(b"  "):
-                    # スキャンして見つかったらスペース2個あけてデータがやってくる
-                    cols = recvMessage.strip().split(b':')
-                    scanRes[cols[0]] = cols[1]
-
-                elif recvMessage.startswith(b"EVENT 22"):
-                    # スキャン完了 
-                    if b"Channel" in scanRes:
-                        logger.info(u"スキャン完了、接続中...")
-                        self.__sendCommand(b"SKSREG S2 " + scanRes[b"Channel"] + b"\r\n")
-                        self.__status = connectStatus.SETCHANNEL
-                    else:
-                        logger.info(u"スキャン再試行中...")
-                        scanDuration += 1
+                    elif self.__status == connectStatus.SETACCOUNT:
+                        logger.info(u"スキャン実行中...")
+                        scanDuration = 4   # スキャン時間。サンプルでは6なんだけど、4でも行けるので。（ダメなら増やして再試行）
                         strCommand = "SKSCAN 2 FFFFFFFF " + str(scanDuration) + "\r\n"
                         self.__sendCommand(strCommand.encode(encoding='utf-8'))
+                        self.__status = connectStatus.SCANNETWORK
 
-            elif self.__status == connectStatus.GETIPADDR6:
-                self.__ipv6Addr = recvMessage.strip()
-                self.__sendCommand(b"SKJOIN " + self.__ipv6Addr + b"\r\n")
-                self.__status = connectStatus.JOINNETWORK
+                    elif self.__status == connectStatus.SETCHANNEL:
+                        self.__sendCommand(b"SKSREG S3 " + scanRes[b"Pan ID"] + b"\r\n")
+                        self.__status = connectStatus.SETPANID
+                        
+                    elif self.__status == connectStatus.SETPANID:
+                        self.__sendCommand(b"SKLL64 " + scanRes[b"Addr"] + b"\r\n")
+                        self.__status = connectStatus.GETIPADDR6
 
-            elif self.__status == connectStatus.JOINNETWORK:
-                if recvMessage.startswith(b"EVENT 24") :
-                    logger.info("PANA 接続失敗..接続再試行")
-                    self.__status = connectStatus.INIT
-                    self.connect()
-                    
-                elif recvMessage.startswith(b"EVENT 25") :
-                    logger.info(u"接続完了！")
-                    self.__status = connectStatus.CONNECTED
-                    # 積算電力量の単位を取得する
-                    self.__requestPropertyRW(b"\xE1")
+                elif self.__status == connectStatus.SCANNETWORK:
+                    if recvMessage.startswith(b"  "):
+                        # スキャンして見つかったらスペース2個あけてデータがやってくる
+                        cols = recvMessage.strip().split(b':')
+                        scanRes[cols[0]] = cols[1]
 
-            elif self.__status == connectStatus.CONNECTED:
-                if recvMessage.startswith(b"ERXUDP") :
-                    cols = recvMessage.split(b' ', 8)
-                    res = cols[8]   # UDP受信データ部分
-                    seoj = res[4:4+3] # 送信者
-                    ESV = res[10:10+1]
-                    if seoj == b"\x02\x88\x01": # スマートメーター(028801)から来たなら
-                        # 末尾の\r\nをのぞくデータ部を処理してもらう
-                        self.__handleSmartMeterMessage(ESV, res[12:-2])
+                    elif recvMessage.startswith(b"EVENT 22"):
+                        # スキャン完了 
+                        if b"Channel" in scanRes:
+                            logger.info(u"スキャン完了、接続中...")
+                            self.__sendCommand(b"SKSREG S2 " + scanRes[b"Channel"] + b"\r\n")
+                            self.__status = connectStatus.SETCHANNEL
+                        else:
+                            logger.info(u"スキャン再試行中...")
+                            scanDuration += 1
+                            strCommand = "SKSCAN 2 FFFFFFFF " + str(scanDuration) + "\r\n"
+                            self.__sendCommand(strCommand.encode(encoding='utf-8'))
+
+                elif self.__status == connectStatus.GETIPADDR6:
+                    self.__ipv6Addr = recvMessage.strip()
+                    self.__sendCommand(b"SKJOIN " + self.__ipv6Addr + b"\r\n")
+                    self.__status = connectStatus.JOINNETWORK
+
+                elif self.__status == connectStatus.JOINNETWORK:
+                    if recvMessage.startswith(b"EVENT 24") :
+                        logger.info("PANA 接続失敗..接続再試行")
+                        self.__status = connectStatus.INIT
+                        self.connect()
+                        
+                    elif recvMessage.startswith(b"EVENT 25") :
+                        logger.info(u"接続完了！")
+                        self.__status = connectStatus.CONNECTED
+                        # 積算電力量の単位を取得する
+                        self.__requestPropertyRW(b"\xE1")
+
+                elif self.__status == connectStatus.CONNECTED:
+                    if recvMessage.startswith(b"ERXUDP") :
+                        cols = recvMessage.split(b' ', 8)
+                        res = cols[8]   # UDP受信データ部分
+                        seoj = res[4:4+3] # 送信者
+                        ESV = res[10:10+1]
+                        if seoj == b"\x02\x88\x01": # スマートメーター(028801)から来たなら
+                            # 末尾の\r\nをのぞくデータ部を処理してもらう
+                            self.__handleSmartMeterMessage(ESV, res[12:-2])
+            except Exception as e:
+                logger.error(e)
     
     def __handleSmartMeterMessage(self, ESV, data):
         while not data == b'':
